@@ -1,6 +1,8 @@
 .env
+.venv/
 __pycache__/
 *.pyc
-venv/
-*.mp3
-.DS_Store 
+.pytest_cache/
+.coverage
+.ruff_cache/
+data/

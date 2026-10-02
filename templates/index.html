@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dynamic Storyteller</title>
+    <title>DreamWeave: interactive stories with narration</title>
+    <meta name="description" content="Pick a hero and a world, steer the adventure, then listen to your story read aloud.">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
         :root {
             --primary-color: #2563eb;
@@ -257,7 +257,6 @@
             background: var(--card-background);
             border-radius: var(--radius);
             box-shadow: var(--shadow);
-            display: none;
         }
 
         .audio-section h3 {
@@ -302,154 +301,180 @@
         .listen-btn i {
             font-size: 1.2rem;
         }
+
+        .hidden { display: none !important; }
+        #story-text { white-space: pre-wrap; line-height: 1.7; }
+        #story-text .choice { display: block; margin: 1rem 0; font-style: italic; color: var(--primary-color); }
+        #story-text .part { display: block; }
+        .cursor::after { content: "\258B"; animation: blink 1s steps(1) infinite; margin-left: 2px; }
+        @keyframes blink { 50% { opacity: 0; } }
+        .banner { background: var(--input-focus); border: 1px solid var(--primary-color); border-radius: var(--radius);
+                  padding: .75rem 1rem; margin-bottom: 1.25rem; font-size: .95rem; color: var(--text-secondary); }
+        .error { color: #dc2626; min-height: 1.4rem; margin-top: .75rem; }
+        .progress { color: var(--text-secondary); font-size: .9rem; margin-bottom: .75rem; }
     </style>
 </head>
 
 <body>
     <div class="container">
-        <h1>Dynamic Storyteller</h1>
-        <div id="start-form">
+        <h1>DreamWeave</h1>
+        {% if demo %}
+        <div class="banner" id="demo-banner">
+            Demo mode: stories come from a built-in storyteller and narration is a short chime, so this page runs with no paid API keys.
+            With xAI and ElevenLabs keys configured, the same flow streams a fresh AI story and a real voice reading.
+        </div>
+        {% endif %}
+        <form id="start-form" autocomplete="off">
             <div class="input-group">
-                <label for="character">Choose your hero</label>
-                <input type="text" id="character" name="character" required
-                    placeholder="e.g., Brave Knight, Wise Wizard..." aria-label="Character name">
+                <label for="hero">Choose your hero</label>
+                <input type="text" id="hero" maxlength="60" required placeholder="e.g., Brave Knight, Wise Wizard...">
                 <i class="fas fa-user input-icon"></i>
             </div>
             <div class="input-group">
-                <label for="setting">Choose your world</label>
-                <input type="text" id="setting" name="setting" required
-                    placeholder="e.g., Enchanted Forest, Space Station..." aria-label="Story setting">
+                <label for="world">Choose your world</label>
+                <input type="text" id="world" maxlength="60" required placeholder="e.g., Enchanted Forest, Space Station...">
                 <i class="fas fa-map-marker-alt input-icon"></i>
             </div>
-            <button id="start-btn" type="button">
-                <i class="fas fa-book-open"></i>
-                Begin Your Adventure
-            </button>
-        </div>
+            <button id="start-btn" type="submit"><i class="fas fa-book-open"></i> Begin Your Adventure</button>
+        </form>
 
         <div id="story-container" class="hidden">
+            <div class="progress" id="progress"></div>
             <div id="story-text" role="article" aria-live="polite"></div>
-            <div class="input-group">
-                <input type="text" id="user-input" placeholder="What happens next? Type your idea here!"
-                    aria-label="Your story continuation">
-                <i class="fas fa-pencil-alt input-icon"></i>
-            </div>
-            <button id="continue-btn">
-                <i class="fas fa-arrow-right"></i>
-                Continue the Story
-            </button>
-            <button id="new-story-btn" class="hidden">
-                <i class="fas fa-plus"></i>
-                Start a New Adventure
-            </button>
+            <form id="turn-form" autocomplete="off">
+                <div class="input-group">
+                    <input type="text" id="choice" maxlength="200" placeholder="What happens next? Type your idea here!" aria-label="Your choice">
+                    <i class="fas fa-pencil-alt input-icon"></i>
+                </div>
+                <button id="continue-btn" type="submit"><i class="fas fa-arrow-right"></i> Continue the Story</button>
+            </form>
 
-            <div class="audio-section" id="audio-section">
+            <div class="audio-section hidden" id="audio-section">
                 <h3>Listen to Your Story</h3>
                 <div class="audio-controls">
-                    <button class="listen-btn" id="listen-btn">
-                        <i class="fas fa-volume-up"></i>
-                        Listen to Story
-                    </button>
-                    <audio id="story-audio" controls>
-                        <source src="" type="audio/mpeg">
-                        Your browser does not support the audio element.
-                    </audio>
+                    <button class="listen-btn" id="listen-btn" type="button"><i class="fas fa-volume-up"></i> Read it to me</button>
+                    <audio id="story-audio" controls class="hidden"></audio>
                 </div>
             </div>
+            <button id="new-story-btn" type="button" class="hidden"><i class="fas fa-plus"></i> Start a New Adventure</button>
         </div>
-
-        <div class="loading" role="status" aria-label="Loading story">
-            <span></span>
-            <span></span>
-            <span></span>
-        </div>
+        <div class="error" id="error" role="alert"></div>
     </div>
 
     <script>
-        $(document).ready(function () {
-            function showLoading() {
-                $('.loading').fadeIn();
-                $('button').prop('disabled', true);
+    (() => {
+        const $ = (id) => document.getElementById(id);
+        let storyId = null;
+        let busy = false;
+        const TOTAL_STEPS = 3;
+        let step = 0;
+
+        function setBusy(on) {
+            busy = on;
+            document.querySelectorAll("button").forEach((b) => (b.disabled = on));
+        }
+        function showError(msg) { $("error").textContent = msg || ""; }
+
+        async function readError(res) {
+            try { return (await res.json()).error; } catch { return "Something went wrong. Please try again."; }
+        }
+
+        // Streams a story part into a new paragraph. Text is inserted with
+        // textContent, never as HTML, so model output cannot inject markup.
+        async function streamPart(url, body) {
+            const res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) throw new Error(await readError(res));
+            storyId = res.headers.get("X-Story-Id") || storyId;
+            const finished = res.headers.get("X-Story-Finished") === "true";
+            const part = document.createElement("span");
+            part.className = "part cursor";
+            $("story-text").appendChild(part);
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            for (;;) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                part.textContent += decoder.decode(value, { stream: true });
             }
+            part.classList.remove("cursor");
+            return finished;
+        }
 
-            function hideLoading() {
-                $('.loading').fadeOut();
-                $('button').prop('disabled', false);
-            }
+        function updateProgress(finished) {
+            $("progress").textContent = finished ? "The end" : `Chapter ${step} of ${TOTAL_STEPS}`;
+        }
 
-            $('#start-btn').click(function () {
-                if (!$('#character').val() || !$('#setting').val()) {
-                    alert('Please fill in both fields to begin your adventure!');
-                    return;
-                }
-
-                showLoading();
-                $.post('/', {
-                    character: $('#character').val(),
-                    setting: $('#setting').val()
-                })
-                    .done(function (data) {
-                        $('#start-form').slideUp(400, function () {
-                            $('#story-container').removeClass('hidden').addClass('visible');
-                            $('#story-text').html(data.story.replace(/\n/g, '<br>'));
-                            $('#user-input, #continue-btn').removeClass('hidden');
-                        });
-                    })
-                    .fail(function () {
-                        alert('Oops! Something went wrong. Please try again.');
-                    })
-                    .always(hideLoading);
-            });
-
-            $('#continue-btn').click(function () {
-                if (!$('#user-input').val()) {
-                    alert('Please tell us what happens next!');
-                    return;
-                }
-
-                showLoading();
-                $.post('/continue', {
-                    user_input: $('#user-input').val()
-                })
-                    .done(function (response) {
-                        // Check if the response is HTML (story end) or JSON (story continue)
-                        if (typeof response === 'string' && response.trim().startsWith('<!DOCTYPE html>')) {
-                            // If it's HTML, replace the entire page content
-                            document.open();
-                            document.write(response);
-                            document.close();
-                        } else {
-                            // If it's JSON, update the story
-                            $('#story-text').append('<br><br>' + response.story.replace(/\n/g, '<br>'));
-                            $('#user-input').val('');
-                        }
-                    })
-                    .fail(function () {
-                        alert('Oops! Something went wrong. Please try again.');
-                    })
-                    .always(hideLoading);
-            });
-
-            $('#listen-btn').click(function () {
-                const audio = document.getElementById('story-audio');
-                audio.play();
-            });
-
-            $('#new-story-btn').click(function () {
-                location.reload();
-            });
-
-            // Keyboard accessibility
-            $('input, button').on('keydown', function (e) {
-                if (e.key === 'Enter') {
-                    if ($(this).is('input')) {
-                        e.preventDefault();
-                        $(this).closest('form').find('button').click();
-                    }
-                }
-            });
+        $("start-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            if (busy) return;
+            const hero = $("hero").value.trim(), world = $("world").value.trim();
+            if (!hero || !world) return showError("Please fill in both fields to begin your adventure!");
+            showError(""); setBusy(true);
+            $("start-form").classList.add("hidden");
+            $("story-container").classList.remove("hidden");
+            $("story-container").classList.add("visible");
+            step = 1; updateProgress(false);
+            try {
+                await streamPart("/api/stories", { hero, world });
+                $("choice").focus();
+            } catch (err) {
+                showError(err.message);
+                $("start-form").classList.remove("hidden");
+                $("story-container").classList.add("hidden");
+                $("story-text").textContent = "";
+            } finally { setBusy(false); }
         });
+
+        $("turn-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            if (busy) return;
+            const choice = $("choice").value.trim();
+            if (!choice) return showError("Please tell us what happens next!");
+            showError(""); setBusy(true);
+            const echo = document.createElement("span");
+            echo.className = "choice";
+            echo.textContent = "You decided: " + choice;
+            $("story-text").appendChild(echo);
+            try {
+                const finished = await streamPart(`/api/stories/${storyId}/turns`, { choice });
+                $("choice").value = "";
+                step += 1; updateProgress(finished);
+                if (finished) {
+                    $("turn-form").classList.add("hidden");
+                    $("audio-section").classList.remove("hidden");
+                    $("new-story-btn").classList.remove("hidden");
+                }
+            } catch (err) {
+                echo.remove();
+                showError(err.message);
+            } finally { setBusy(false); }
+        });
+
+        $("listen-btn").addEventListener("click", async () => {
+            if (busy) return;
+            showError(""); setBusy(true);
+            $("listen-btn").innerHTML = '<i class="fas fa-spinner fa-spin"></i> Recording the narration...';
+            try {
+                const res = await fetch(`/api/stories/${storyId}/narration`, { method: "POST" });
+                if (!res.ok) throw new Error(await readError(res));
+                const { audio_url } = await res.json();
+                const audio = $("story-audio");
+                audio.src = audio_url;
+                audio.classList.remove("hidden");
+                $("listen-btn").classList.add("hidden");
+                await audio.play().catch(() => {});
+            } catch (err) {
+                showError(err.message);
+                $("listen-btn").innerHTML = '<i class="fas fa-volume-up"></i> Read it to me';
+            } finally { setBusy(false); }
+        });
+
+        $("new-story-btn").addEventListener("click", () => location.reload());
+    })();
     </script>
 </body>
-
 </html>
