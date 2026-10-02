@@ -6,6 +6,9 @@ This was my capstone project for Boot.dev. The first version worked for one pers
 
 ![A finished DreamWeave story with narration](docs/screenshot.png)
 
+
+**Live demo:** https://dreamweave-v2.onrender.com (Render free plan, demo mode: built-in storyteller and chime narrator, no API keys). The free instance sleeps after 15 minutes idle, so the first load can take up to a minute.
+
 ## How it works
 
 ```mermaid
