@@ -2,14 +2,17 @@ services:
   - type: web
     name: dreamweave
     env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app
+    startCommand: gunicorn main:app -c gunicorn.conf.py
+    healthCheckPath: /healthz
     envVars:
-      - key: ELEVENLABS_API_KEY
-        sync: false
       - key: FLASK_SECRET_KEY
-        sync: false
+        generateValue: true
+      # Leave both keys empty to run the free demo mode.
       - key: X_AI_API_KEY
         sync: false
-      - key: X_AI_API_URL
-        sync: false 
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: X_AI_MODEL
+        value: grok-3-mini
